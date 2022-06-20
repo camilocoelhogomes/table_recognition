@@ -1,32 +1,8 @@
-
-from pydrive.drive import GoogleDrive
-from pydrive.auth import GoogleAuth
+from flask import Flask, Response, request, send_file
+from flask_cors import CORS, cross_origin
+import json
+import base64
 import boto3
-s3 = boto3.resource('s3')
-reader = boto3.client('textract')
-
-
-def list_files():
-    files = []
-    bucket = s3.Bucket('test-bucket-camilo2')
-    for file in bucket.objects.all():
-        files.append(s3.Object('test-bucket-camilo2', file.key))
-    return files
-
-
-def get_text(result, blocks_map):
-    text = ''
-    if 'Relationships' in result:
-        for relationship in result['Relationships']:
-            if relationship['Type'] == 'CHILD':
-                for child_id in relationship['Ids']:
-                    word = blocks_map[child_id]
-                    if word['BlockType'] == 'WORD':
-                        text += word['Text'] + ' '
-                    if word['BlockType'] == 'SELECTION_ELEMENT':
-                        if word['SelectionStatus'] == 'SELECTED':
-                            text += 'X '
-    return text
 
 
 def get_rows_columns_map(table_result, blocks_map):
@@ -47,34 +23,28 @@ def get_rows_columns_map(table_result, blocks_map):
     return rows
 
 
-def generate_table_csv(table_result, blocks_map, table_index):
-    rows = get_rows_columns_map(table_result, blocks_map)
-
-    table_id = 'Table_' + str(table_index)
-
-    # get cells.
-    csv = 'Table: {0}\n\n'.format(table_id)
-
-    for row_index, cols in rows.items():
-
-        for col_index, text in cols.items():
-            csv += '{}'.format(text) + ","
-        csv += '\n'
-
-    csv += '\n\n\n'
-    return csv
+def get_text(result, blocks_map):
+    text = ''
+    if 'Relationships' in result:
+        for relationship in result['Relationships']:
+            if relationship['Type'] == 'CHILD':
+                for child_id in relationship['Ids']:
+                    word = blocks_map[child_id]
+                    if word['BlockType'] == 'WORD':
+                        text += word['Text'] + ' '
+                    if word['BlockType'] == 'SELECTION_ELEMENT':
+                        if word['SelectionStatus'] == 'SELECTED':
+                            text += 'X '
+    return text
 
 
-def get_table_csv_results(image):
-    response = reader.analyze_document(
-        Document={
-            'S3Object': {
-                'Bucket': image.bucket_name,
-                'Name': image.key,
-            }
-        },
-        FeatureTypes=['TABLES']
-    )
+def get_table_csv_results(file_name):
+    client = boto3.client('textract')
+
+    response = client.analyze_document(
+        Document={'Bytes': file_name}, FeatureTypes=['TABLES'])
+
+    # Get the text blocks
     blocks = response['Blocks']
 
     blocks_map = {}
@@ -95,23 +65,67 @@ def get_table_csv_results(image):
     return csv
 
 
-def main():
-    images = list_files()
-    count = 0
-    for image in images:
-        count = count + 1
-        table_csv = get_table_csv_results(image)
+def generate_table_csv(table_result, blocks_map, table_index):
+    rows = get_rows_columns_map(table_result, blocks_map)
 
-        output_file = 'output'+str(count)+'.csv'
+    table_id = 'Table_' + str(table_index)
 
-        with open(output_file, "wt") as fout:
-            fout.write(table_csv)
+    # get cells.
+    csv = 'Table: {0}\n\n'.format(table_id)
 
-        s3.upload_file(
-            Filename=output_file,
-            Bucket='test-bucket-camilo2',
-            Key=output_file,
-        )
+    for row_index, cols in rows.items():
+
+        for col_index, text in cols.items():
+            csv += '{}'.format(text) + ","
+        csv += '\n'
+
+    csv += '\n\n\n'
+    return csv
 
 
-main()
+def main(file_name):
+    table_csv = get_table_csv_results(file_name)
+
+    output_file = 'output.csv'
+
+    # replace content
+    with open(output_file, "wt") as fout:
+        fout.write(table_csv)
+    pass
+
+
+app = Flask(__name__)
+CORS(app, support_credentials=True)
+
+
+def gera_response(status, nome_do_conteudo, conteudo, mensagem=False):
+    body = {}
+    body[nome_do_conteudo] = conteudo
+    if(mensagem):
+        body['mensagem'] = mensagem
+    return Response(json.dumps(body), status=status, minetype='application/json')
+
+
+@app.route('/test-api', methods=['GET'])
+@cross_origin(support_credentials=True)
+def test():
+    return Response(json.dumps({"isAlive": "sim"}))
+
+
+@app.route('/', methods=['POST'])
+@cross_origin(support_credentials=True)
+def getImage():
+    body = request.get_json()['img']
+    base64_img = body[(body.find(',')+1):]
+    imgdata = base64.b64decode(base64_img)
+    base64_format = body[(body.find('image/')+6):body.find(';')]
+    filename = 'outuput.'+base64_format
+    with open(filename, 'wb') as f:
+        f.write(imgdata)
+    with open(filename, 'rb') as binary_file:
+        binary_file_data = binary_file.read()
+        main(binary_file_data)
+    return send_file('output.csv', as_attachment=True, mimetype="text/csv")
+
+
+app.run()
