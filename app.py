@@ -1,6 +1,5 @@
 from flask import Flask, Response, request, send_file
 from flask_cors import CORS, cross_origin
-import json
 import base64
 import boto3
 
@@ -96,20 +95,6 @@ def main(file_name):
 
 app = Flask(__name__)
 CORS(app, support_credentials=True)
-
-
-def gera_response(status, nome_do_conteudo, conteudo, mensagem=False):
-    body = {}
-    body[nome_do_conteudo] = conteudo
-    if(mensagem):
-        body['mensagem'] = mensagem
-    return Response(json.dumps(body), status=status, minetype='application/json')
-
-
-@app.route('/test-api', methods=['GET'])
-@cross_origin(support_credentials=True)
-def test():
-    return Response(json.dumps({"isAlive": "sim"}))
 
 
 @app.route('/', methods=['POST'])
