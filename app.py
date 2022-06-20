@@ -1,6 +1,7 @@
 
+from pydrive.drive import GoogleDrive
+from pydrive.auth import GoogleAuth
 import boto3
-from pprint import pprint
 s3 = boto3.resource('s3')
 reader = boto3.client('textract')
 
@@ -54,9 +55,9 @@ def generate_table_csv(table_result, blocks_map, table_index):
     # get cells.
     csv = 'Table: {0}\n\n'.format(table_id)
 
-    for cols in rows.items():
+    for row_index, cols in rows.items():
 
-        for text in cols.items():
+        for col_index, text in cols.items():
             csv += '{}'.format(text) + ","
         csv += '\n'
 
@@ -64,19 +65,17 @@ def generate_table_csv(table_result, blocks_map, table_index):
     return csv
 
 
-def get_table_csv_results(images):
-    print(images[0])
+def get_table_csv_results(image):
     response = reader.analyze_document(
         Document={
             'S3Object': {
-                'Bucket': images[0].bucket_name,
-                'Name': images[0].key,
+                'Bucket': image.bucket_name,
+                'Name': image.key,
             }
         },
         FeatureTypes=['TABLES']
     )
     blocks = response['Blocks']
-    pprint(blocks)
 
     blocks_map = {}
     table_blocks = []
@@ -98,16 +97,21 @@ def get_table_csv_results(images):
 
 def main():
     images = list_files()
-    table_csv = get_table_csv_results(images)
+    count = 0
+    for image in images:
+        count = count + 1
+        table_csv = get_table_csv_results(image)
 
-    output_file = 'output.csv'
+        output_file = 'output'+str(count)+'.csv'
 
-    # replace content
-    with open(output_file, "wt") as fout:
-        fout.write(table_csv)
+        with open(output_file, "wt") as fout:
+            fout.write(table_csv)
 
-    # show the results
-    print('CSV OUTPUT FILE: ', output_file)
+        s3.upload_file(
+            Filename=output_file,
+            Bucket='test-bucket-camilo2',
+            Key=output_file,
+        )
 
 
 main()
