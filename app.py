@@ -1,7 +1,9 @@
-from flask import Flask, Response, request, send_file
+from unicodedata import name
+from flask import Flask, request, send_file
 from flask_cors import CORS, cross_origin
 import base64
 import boto3
+import os
 
 
 def get_rows_columns_map(table_result, blocks_map):
@@ -75,7 +77,7 @@ def generate_table_csv(table_result, blocks_map, table_index):
     for row_index, cols in rows.items():
 
         for col_index, text in cols.items():
-            csv += '{}'.format(text) + ","
+            csv += '{}'.format(text) + ";"
         csv += '\n'
 
     csv += '\n\n\n'
@@ -110,7 +112,11 @@ def getImage():
     with open(filename, 'rb') as binary_file:
         binary_file_data = binary_file.read()
         main(binary_file_data)
-    return send_file('output.csv', as_attachment=True, mimetype="text/csv")
+
+    file = open('output.csv', 'rb')
+    os.remove(filename)
+    os.remove('output.csv')
+    return send_file(file, download_name="output.csv", as_attachment=True, mimetype="text/csv")
 
 
 app.run()
